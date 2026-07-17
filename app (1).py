@@ -31,7 +31,7 @@ st.title("📊 Dashboard Penjualan, HPP & Bahan Baku")
 st.sidebar.header("Navigasi")
 menu = st.sidebar.radio(
     "Pilih Halaman:", 
-    ["Dashboard & Untung Rugi", "Input Stok Barang", "Input Transaksi Baru", "Input Pengeluaran Bahan"]
+    ["Dashboard & Untung Rugi", "Input Stok Barang", "Input Transaksi Baru", "Input Pengeluaran Bahan", "🗑️ Hapus Data"]
 )
 
 # ==================== HALAMAN 1: DASHBOARD & UNTUNG RUGI ====================
@@ -223,3 +223,85 @@ elif menu == "Input Pengeluaran Bahan":
                 st.success(f"Berhasil mencatat pengeluaran untuk '{nama_bahan}'!")
             else:
                 st.warning("Nama bahan wajib diisi dan biaya harus lebih dari Rp 0!")
+
+# ==================== HALAMAN 5: HAPUS DATA (PER ITEM) ====================
+elif menu == "🗑️ Hapus Data":
+    st.header("🗑️ Hapus Data Per Item")
+    st.caption("Pilih tabel, lalu pilih baris yang ingin dihapus. Tindakan ini tidak bisa dibatalkan.")
+
+    tab_stok, tab_transaksi, tab_pengeluaran = st.tabs(
+        ["📦 Hapus Stok", "🛍️ Hapus Transaksi", "📝 Hapus Pengeluaran Bahan"]
+    )
+
+    # --- HAPUS DATA STOK ---
+    with tab_stok:
+        df_stok_hapus = ambil_data("SELECT * FROM stok")
+        if df_stok_hapus.empty:
+            st.info("Belum ada data stok.")
+        else:
+            st.dataframe(df_stok_hapus, use_container_width=True, hide_index=True)
+            opsi_stok = {
+                f"#{row.id} — {row.nama_barang} (sisa {row.stok_sekarang})": row.id
+                for row in df_stok_hapus.itertuples()
+            }
+            pilihan_stok = st.selectbox("Pilih barang yang mau dihapus", list(opsi_stok.keys()), key="pilih_stok")
+            id_stok = opsi_stok[pilihan_stok]
+
+            st.warning("⚠️ Menghapus barang di sini juga akan menghapus semua riwayat transaksi barang tersebut (agar data tetap konsisten).")
+            konfirmasi_stok = st.checkbox("Saya yakin ingin menghapus barang ini", key="konfirmasi_stok")
+            if st.button("Hapus Barang Ini", key="btn_hapus_stok", disabled=not konfirmasi_stok):
+                nama_barang_dihapus = df_stok_hapus.loc[df_stok_hapus['id'] == id_stok, 'nama_barang'].values[0]
+                jalankan_query("DELETE FROM penjualan WHERE nama_barang = ?", (nama_barang_dihapus,))
+                jalankan_query("DELETE FROM stok WHERE id = ?", (id_stok,))
+                st.success(f"Barang '{nama_barang_dihapus}' beserta riwayat transaksinya berhasil dihapus.")
+                st.rerun()
+
+    # --- HAPUS DATA TRANSAKSI ---
+    with tab_transaksi:
+        df_transaksi_hapus = ambil_data("SELECT * FROM penjualan ORDER BY id DESC")
+        if df_transaksi_hapus.empty:
+            st.info("Belum ada data transaksi.")
+        else:
+            st.dataframe(
+                df_transaksi_hapus[['id', 'nama_pembeli', 'nama_barang', 'jumlah', 'total_harga', 'tanggal']],
+                use_container_width=True, hide_index=True
+            )
+            opsi_transaksi = {
+                f"#{row.id} — {row.nama_pembeli} | {row.nama_barang} x{row.jumlah} | Rp {row.total_harga:,.0f} | {row.tanggal}": row.id
+                for row in df_transaksi_hapus.itertuples()
+            }
+            pilihan_transaksi = st.selectbox("Pilih transaksi yang mau dihapus", list(opsi_transaksi.keys()), key="pilih_transaksi")
+            id_transaksi = opsi_transaksi[pilihan_transaksi]
+
+            kembalikan_stok = st.checkbox("Kembalikan jumlah barang ini ke stok gudang", value=True, key="kembalikan_stok")
+            konfirmasi_transaksi = st.checkbox("Saya yakin ingin menghapus transaksi ini", key="konfirmasi_transaksi")
+            if st.button("Hapus Transaksi Ini", key="btn_hapus_transaksi", disabled=not konfirmasi_transaksi):
+                baris = df_transaksi_hapus.loc[df_transaksi_hapus['id'] == id_transaksi].iloc[0]
+                if kembalikan_stok:
+                    jalankan_query(
+                        "UPDATE stok SET stok_sekarang = stok_sekarang + ? WHERE nama_barang = ?",
+                        (int(baris['jumlah']), baris['nama_barang'])
+                    )
+                jalankan_query("DELETE FROM penjualan WHERE id = ?", (id_transaksi,))
+                st.success(f"Transaksi #{id_transaksi} berhasil dihapus.")
+                st.rerun()
+
+    # --- HAPUS DATA PENGELUARAN BAHAN ---
+    with tab_pengeluaran:
+        df_pengeluaran_hapus = ambil_data("SELECT * FROM pengeluaran_bahan ORDER BY id DESC")
+        if df_pengeluaran_hapus.empty:
+            st.info("Belum ada data pengeluaran bahan.")
+        else:
+            st.dataframe(df_pengeluaran_hapus, use_container_width=True, hide_index=True)
+            opsi_pengeluaran = {
+                f"#{row.id} — {row.nama_bahan} | Rp {row.biaya:,.0f} | {row.tanggal}": row.id
+                for row in df_pengeluaran_hapus.itertuples()
+            }
+            pilihan_pengeluaran = st.selectbox("Pilih pengeluaran yang mau dihapus", list(opsi_pengeluaran.keys()), key="pilih_pengeluaran")
+            id_pengeluaran = opsi_pengeluaran[pilihan_pengeluaran]
+
+            konfirmasi_pengeluaran = st.checkbox("Saya yakin ingin menghapus pengeluaran ini", key="konfirmasi_pengeluaran")
+            if st.button("Hapus Pengeluaran Ini", key="btn_hapus_pengeluaran", disabled=not konfirmasi_pengeluaran):
+                jalankan_query("DELETE FROM pengeluaran_bahan WHERE id = ?", (id_pengeluaran,))
+                st.success(f"Pengeluaran #{id_pengeluaran} berhasil dihapus.")
+                st.rerun()
